@@ -16,15 +16,21 @@ pub struct Mesh {
 
 impl Mesh {
     /// Creates an empty mesh.
-    pub fn new() -> Self { Mesh::default() }
+    pub fn new() -> Self {
+        Mesh::default()
+    }
 
     /// Returns the number of vertices.
     #[inline]
-    pub fn vertex_count(&self) -> usize { self.positions.len() / 3 }
+    pub fn vertex_count(&self) -> usize {
+        self.positions.len() / 3
+    }
 
     /// Returns the number of triangles.
     #[inline]
-    pub fn triangle_count(&self) -> usize { self.indices.len() / 3 }
+    pub fn triangle_count(&self) -> usize {
+        self.indices.len() / 3
+    }
 
     /// Add a vertex and return its index.
     pub(crate) fn push_vertex(&mut self, pos: [f32; 3], normal: [f32; 3]) -> u32 {

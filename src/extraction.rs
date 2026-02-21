@@ -135,9 +135,42 @@ fn extract_regular_cell<F>(
         if a >= 12 || b >= 12 || c >= 12 {
             continue;
         }
-        let Some(va) = get_vertex_regular(vertex_data[a], &corners, &densities, threshold, block, field, mesh, cache) else { continue };
-        let Some(vb) = get_vertex_regular(vertex_data[b], &corners, &densities, threshold, block, field, mesh, cache) else { continue };
-        let Some(vc) = get_vertex_regular(vertex_data[c], &corners, &densities, threshold, block, field, mesh, cache) else { continue };
+        let Some(va) = get_vertex_regular(
+            vertex_data[a],
+            &corners,
+            &densities,
+            threshold,
+            block,
+            field,
+            mesh,
+            cache,
+        ) else {
+            continue;
+        };
+        let Some(vb) = get_vertex_regular(
+            vertex_data[b],
+            &corners,
+            &densities,
+            threshold,
+            block,
+            field,
+            mesh,
+            cache,
+        ) else {
+            continue;
+        };
+        let Some(vc) = get_vertex_regular(
+            vertex_data[c],
+            &corners,
+            &densities,
+            threshold,
+            block,
+            field,
+            mesh,
+            cache,
+        ) else {
+            continue;
+        };
         mesh.push_triangle(va, vb, vc);
     }
 }

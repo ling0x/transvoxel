@@ -32,7 +32,7 @@ fn main() {
     println!("╚══════════════════════════════════════════════════╝");
     println!();
 
-    let block     = Block::new([-6.0, -6.0, -6.0], 12.0, 16);
+    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 16);
     let threshold = 0.0_f32;
 
     // 1. Pure Marching Cubes (no transitions)
@@ -40,7 +40,12 @@ fn main() {
     stats("Sphere — no transitions", &m);
 
     // 2. Single transition face
-    let m = extract_mesh(&sphere, &block, threshold, TransitionSides::from(TransitionSide::LowX));
+    let m = extract_mesh(
+        &sphere,
+        &block,
+        threshold,
+        TransitionSides::from(TransitionSide::LowX),
+    );
     stats("Sphere — transition LowX", &m);
 
     // 3. Three transition faces
@@ -68,7 +73,12 @@ fn main() {
         );
     }
     if m.indices.len() >= 3 {
-        println!("f {} {} {}", m.indices[0]+1, m.indices[1]+1, m.indices[2]+1);
+        println!(
+            "f {} {} {}",
+            m.indices[0] + 1,
+            m.indices[1] + 1,
+            m.indices[2] + 1
+        );
     }
 
     println!();

@@ -21,9 +21,9 @@
 //! println!("Triangles: {}", mesh.triangle_count());
 //! ```
 
-pub mod tables;
-pub mod mesh;
 pub mod block;
-pub mod transition_sides;
 pub mod extraction;
+pub mod mesh;
 pub mod prelude;
+pub mod tables;
+pub mod transition_sides;

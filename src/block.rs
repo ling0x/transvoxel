@@ -25,7 +25,11 @@ impl Block {
     /// Panics if `subdivisions == 0`.
     pub fn new(origin: [f32; 3], size: f32, subdivisions: usize) -> Self {
         assert!(subdivisions >= 1, "subdivisions must be >= 1");
-        Block { origin, size, subdivisions }
+        Block {
+            origin,
+            size,
+            subdivisions,
+        }
     }
 
     /// Number of voxel sample points per axis (`subdivisions + 1`).
