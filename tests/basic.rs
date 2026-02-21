@@ -17,7 +17,8 @@ fn empty_block_outside_sphere() {
 
 #[test]
 fn sphere_produces_geometry() {
-    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 8);
+    // Use 16 subdivisions so the sphere surface is well sampled (matches demo).
+    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 16);
     let mesh  = extract_mesh(&sphere, &block, 0.0, TransitionSides::empty());
     assert!(mesh.triangle_count() > 0, "expected triangles");
     assert!(mesh.vertex_count()   > 0, "expected vertices");
@@ -25,7 +26,7 @@ fn sphere_produces_geometry() {
 
 #[test]
 fn indices_in_bounds() {
-    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 8);
+    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 16);
     let mesh  = extract_mesh(&sphere, &block, 0.0, TransitionSides::empty());
     let vc    = mesh.vertex_count() as u32;
     for &idx in &mesh.indices {
@@ -35,7 +36,7 @@ fn indices_in_bounds() {
 
 #[test]
 fn array_sizes_consistent() {
-    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 8);
+    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 16);
     let mesh  = extract_mesh(&sphere, &block, 0.0, TransitionSides::empty());
     assert_eq!(mesh.positions.len(), mesh.vertex_count() * 3);
     assert_eq!(mesh.normals.len(),   mesh.vertex_count() * 3);
@@ -44,7 +45,7 @@ fn array_sizes_consistent() {
 
 #[test]
 fn normals_unit_length() {
-    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 6);
+    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 16);
     let mesh  = extract_mesh(&sphere, &block, 0.0, TransitionSides::empty());
     for i in 0..mesh.vertex_count() {
         let n = &mesh.normals[i*3..i*3+3];
@@ -55,18 +56,17 @@ fn normals_unit_length() {
 
 #[test]
 fn transition_lowx_executes() {
-    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 6);
+    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 16);
     let sides = TransitionSides::from(TransitionSide::LowX);
-    // should not panic
     let mesh = extract_mesh(&sphere, &block, 0.0, sides);
-    assert!(mesh.triangle_count() >= 0);
+    assert!(mesh.triangle_count() > 0);
 }
 
 #[test]
 fn all_transitions_executes() {
-    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 4);
+    let block = Block::new([-6.0, -6.0, -6.0], 12.0, 16);
     let mesh  = extract_mesh(&sphere, &block, 0.0, TransitionSides::all());
-    assert!(mesh.triangle_count() >= 0);
+    assert!(mesh.triangle_count() > 0);
 }
 
 #[test]

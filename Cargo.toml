@@ -18,5 +18,6 @@ name = "demo"
 path = "src/bin/demo.rs"
 
 [dependencies]
+transvoxel-data = "0.2"
 
 [dev-dependencies]

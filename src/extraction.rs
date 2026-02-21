@@ -7,6 +7,7 @@ use crate::tables::{
 };
 use crate::transition_sides::{TransitionSide, TransitionSides};
 use std::collections::HashMap;
+use transvoxel_data::regular_cell_data::REGULAR_VERTEX_DATA;
 
 // ---------------------------------------------------------------------------
 // Public extraction entry point
@@ -62,22 +63,6 @@ where
 // Regular cell (Marching Cubes)
 // ---------------------------------------------------------------------------
 
-// Standard Transvoxel edge-to-corner mapping (following Lengyel ordering).
-const EDGE_CORNERS: [(usize, usize); 12] = [
-    (0, 1),
-    (1, 3),
-    (3, 2),
-    (2, 0), // bottom edges (z=0)
-    (4, 5),
-    (5, 7),
-    (7, 6),
-    (6, 4), // top edges (z=1)
-    (0, 4),
-    (1, 5),
-    (3, 7),
-    (2, 6), // vertical edges
-];
-
 fn extract_regular_cell<F>(
     field: &F,
     block: &Block,
@@ -116,10 +101,9 @@ fn extract_regular_cell<F>(
     // Transvoxel corner ordering (z-major, then y, then x):
     // bit 0: (0,0,0), bit 1: (1,0,0), bit 2: (0,1,0), bit 3: (1,1,0)
     // bit 4: (0,0,1), bit 5: (1,0,1), bit 6: (0,1,1), bit 7: (1,1,1)
+    // Case index: bit i = 1 when corner i is inside (density >= threshold), per Lengyel.
     let case_index = (0..8).fold(0usize, |acc, i| {
-        // Since corners array maps index exactly to this binary mapping:
-        // Ex: idx 5 = [1,0,1] => bit 5.
-        if densities[i] < threshold {
+        if densities[i] >= threshold {
             acc | (1 << i)
         } else {
             acc
@@ -136,49 +120,81 @@ fn extract_regular_cell<F>(
         return;
     }
 
-    let tri_count = (cell_data[0] & 0x0F) as usize; // Low nibble is triangle count in Transvoxel.cpp
+    let tri_count = (cell_data[0] & 0x0F) as usize;
     if tri_count == 0 || cell_data.len() < 1 + tri_count * 3 {
         return;
     }
 
-    let mut edge_verts: [u32; 12] = [u32::MAX; 12];
-    for (edge_idx, &(ca, cb)) in EDGE_CORNERS.iter().enumerate() {
-        let da = densities[ca];
-        let db = densities[cb];
-        if (da >= threshold) == (db >= threshold) {
+    // Triangle indices in cell_data refer to per-case vertex slots; each slot's edge is in REGULAR_VERTEX_DATA.
+    let vertex_data = &REGULAR_VERTEX_DATA[case_index];
+    for tri in 0..tri_count {
+        let base = 1 + tri * 3;
+        let a = cell_data[base] as usize;
+        let b = cell_data[base + 1] as usize;
+        let c = cell_data[base + 2] as usize;
+        if a >= 12 || b >= 12 || c >= 12 {
             continue;
         }
-
-        let mut p_a_int = [
-            corners[ca][0] as i32 * 2,
-            corners[ca][1] as i32 * 2,
-            corners[ca][2] as i32 * 2,
-        ];
-        let mut p_b_int = [
-            corners[cb][0] as i32 * 2,
-            corners[cb][1] as i32 * 2,
-            corners[cb][2] as i32 * 2,
-        ];
-        if p_a_int > p_b_int {
-            std::mem::swap(&mut p_a_int, &mut p_b_int);
-        }
-        let edge_key = (p_a_int, p_b_int);
-
-        if let Some(&v_idx) = cache.get(&edge_key) {
-            edge_verts[edge_idx] = v_idx;
-        } else {
-            let t = ((threshold - da) / (db - da)).clamp(0.0, 1.0);
-            let pa = block.voxel_position(corners[ca][0], corners[ca][1], corners[ca][2]);
-            let pb = block.voxel_position(corners[cb][0], corners[cb][1], corners[cb][2]);
-            let pos = lerp3(pa, pb, t);
-            let normal = gradient_normal(field, block.voxel_step(), pos);
-            let v_idx = mesh.push_vertex(pos, normal);
-            cache.insert(edge_key, v_idx);
-            edge_verts[edge_idx] = v_idx;
-        }
+        let Some(va) = get_vertex_regular(vertex_data[a], &corners, &densities, threshold, block, field, mesh, cache) else { continue };
+        let Some(vb) = get_vertex_regular(vertex_data[b], &corners, &densities, threshold, block, field, mesh, cache) else { continue };
+        let Some(vc) = get_vertex_regular(vertex_data[c], &corners, &densities, threshold, block, field, mesh, cache) else { continue };
+        mesh.push_triangle(va, vb, vc);
     }
+}
 
-    emit_triangles(cell_data, tri_count, &edge_verts, mesh, false);
+/// Get or create vertex for an edge given by Lengyel vertex data (low byte = two corner indices).
+fn get_vertex_regular<F>(
+    vertex_code: u16,
+    corners: &[[usize; 3]; 8],
+    densities: &[f32; 8],
+    threshold: f32,
+    block: &Block,
+    field: &F,
+    mesh: &mut Mesh,
+    cache: &mut HashMap<([i32; 3], [i32; 3]), u32>,
+) -> Option<u32>
+where
+    F: Fn(f32, f32, f32) -> f32,
+{
+    let edge_byte = (vertex_code & 0xFF) as u8;
+    if edge_byte == 0 {
+        return None;
+    }
+    let ca = (edge_byte >> 4) as usize;
+    let cb = (edge_byte & 0x0F) as usize;
+    if ca >= 8 || cb >= 8 {
+        return None;
+    }
+    let da = densities[ca];
+    let db = densities[cb];
+    if (da >= threshold) == (db >= threshold) {
+        return None;
+    }
+    let mut p_a_int = [
+        corners[ca][0] as i32 * 2,
+        corners[ca][1] as i32 * 2,
+        corners[ca][2] as i32 * 2,
+    ];
+    let mut p_b_int = [
+        corners[cb][0] as i32 * 2,
+        corners[cb][1] as i32 * 2,
+        corners[cb][2] as i32 * 2,
+    ];
+    if p_a_int > p_b_int {
+        std::mem::swap(&mut p_a_int, &mut p_b_int);
+    }
+    let edge_key = (p_a_int, p_b_int);
+    if let Some(&v_idx) = cache.get(&edge_key) {
+        return Some(v_idx);
+    }
+    let t = ((threshold - da) / (db - da)).clamp(0.0, 1.0);
+    let pa = block.voxel_position(corners[ca][0], corners[ca][1], corners[ca][2]);
+    let pb = block.voxel_position(corners[cb][0], corners[cb][1], corners[cb][2]);
+    let pos = lerp3(pa, pb, t);
+    let normal = gradient_normal(field, block.voxel_step(), pos);
+    let v_idx = mesh.push_vertex(pos, normal);
+    cache.insert(edge_key, v_idx);
+    Some(v_idx)
 }
 
 // ---------------------------------------------------------------------------
@@ -255,8 +271,9 @@ fn extract_transition_face<F>(
                 }
             }
 
+            // Case index: bit i = 1 when corner i is inside (density >= threshold), per Lengyel.
             let case_index = (0..9).fold(0usize, |acc, i| {
-                if densities[i] < threshold {
+                if densities[i] >= threshold {
                     acc | (1 << i)
                 } else {
                     acc
