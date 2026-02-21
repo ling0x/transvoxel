@@ -6,9 +6,10 @@
 //! 1. Sample density at each of the 8 corners.
 //! 2. Build an 8-bit case index (bit `i` = 1 if corner `i` is inside).
 //! 3. Look up the equivalence class and triangle pattern from the tables.
-//! 4. For each of the 12 possible edges, if it is crossed by the iso-surface,
+//! 4. For each of the 12 possible edges, if crossed by the iso-surface,
 //!    interpolate a vertex and store it in `edge_verts[edge_index]`.
-//! 5. Emit triangles by indexing into `edge_verts` with the table's vertex indices.
+//! 5. Emit triangles: the table's vertex indices are edge slot numbers (0-11),
+//!    NOT a dense 0..vert_count range.
 //!
 //! ## Transition cell extraction
 //!
@@ -71,7 +72,7 @@ where
 
 // Standard Marching Cubes edge-to-corner mapping.
 // Edge index → (corner_a, corner_b).
-// Corners are numbered with bit0=+X, bit1=+Y, bit2=+Z:
+// Corners numbered with bit0=+X, bit1=+Y, bit2=+Z:
 //   0=(0,0,0)  1=(1,0,0)  2=(0,1,0)  3=(1,1,0)
 //   4=(0,0,1)  5=(1,0,1)  6=(0,1,1)  7=(1,1,1)
 const EDGE_CORNERS: [(usize, usize); 12] = [
@@ -91,7 +92,7 @@ fn extract_regular_cell<F>(
 where
     F: Fn(f32, f32, f32) -> f32,
 {
-    // Skip boundary cells that will be replaced by transition geometry
+    // Skip boundary cells replaced by transition geometry
     if is_boundary_cell(ix, iy, iz, block.subdivisions, transitions) {
         return;
     }
@@ -121,28 +122,23 @@ where
     });
 
     if case_index == 0 || case_index == 255 {
-        return; // fully outside or fully inside
+        return;
     }
 
     let class_idx = REGULAR_CELL_CLASS[case_index] as usize;
     let cell_data = REGULAR_CELL_DATA[class_idx.min(REGULAR_CELL_DATA.len() - 1)];
     if cell_data.len() < 1 { return; }
 
-    let tri_count  = ((cell_data[0] >> 4) & 0xF) as usize;
-    let vert_count = (cell_data[0] & 0xF) as usize;
+    let tri_count = ((cell_data[0] >> 4) & 0xF) as usize;
     if tri_count == 0 || cell_data.len() < 1 + tri_count * 3 { return; }
 
-    // For each of the 12 edges, compute an interpolated vertex if the edge is
-    // crossed by the iso-surface. Store the mesh vertex index in edge_verts[edge].
-    // Uncrossed edges stay as u32::MAX (sentinel).
+    // Build edge_verts: for each of the 12 edge slots, if the edge is crossed
+    // store the new mesh vertex index; otherwise u32::MAX as sentinel.
     let mut edge_verts: [u32; 12] = [u32::MAX; 12];
-
     for (edge_idx, &(ca, cb)) in EDGE_CORNERS.iter().enumerate() {
         let da = densities[ca];
         let db = densities[cb];
-        if (da >= threshold) == (db >= threshold) {
-            continue; // edge not crossed
-        }
+        if (da >= threshold) == (db >= threshold) { continue; }
         let t  = ((threshold - da) / (db - da)).clamp(0.0, 1.0);
         let pa = block.voxel_position(corners[ca][0], corners[ca][1], corners[ca][2]);
         let pb = block.voxel_position(corners[cb][0], corners[cb][1], corners[cb][2]);
@@ -151,8 +147,7 @@ where
         edge_verts[edge_idx] = mesh.push_vertex(pos, normal);
     }
 
-    // Emit triangles: each vertex index in cell_data references an edge slot
-    emit_triangles(cell_data, tri_count, vert_count, &edge_verts, mesh);
+    emit_triangles(cell_data, tri_count, &edge_verts, mesh);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +155,7 @@ where
 // ---------------------------------------------------------------------------
 
 // Edges of the high-resolution 3×3 face (9 voxels, 12 edges).
-// Row-major index: voxel at (row, col) = row*3 + col.
+// Row-major: voxel at (row, col) = row*3 + col.
 const TC_EDGE_CORNERS: [(usize, usize); 12] = [
     (0, 1), (1, 2),           // top row, horizontal
     (3, 4), (4, 5),           // middle row, horizontal
@@ -181,23 +176,19 @@ where
 {
     let n    = block.subdivisions;
     let step = block.voxel_step();
-    let (ax, ay)        = side.face_axes();
+    let (ax, ay)          = side.face_axes();
     let (norm_axis, sign) = side.normal_axis_sign();
-    let fixed_idx       = if sign < 0.0 { 0usize } else { n };
+    let fixed_idx         = if sign < 0.0 { 0usize } else { n };
 
     for cell_v in 0..n {
         for cell_u in 0..n {
-            // Build the 3×3 grid of high-resolution samples for this transition cell.
             let mut densities = [0.0f32; 9];
             let mut positions = [[0.0f32; 3]; 9];
 
             for row in 0..3usize {
                 for col in 0..3usize {
-                    // sub-grid coordinates (0..2n range)
-                    let sub_u = cell_u * 2 + col;
-                    let sub_v = cell_v * 2 + row;
-
-                    // Integer voxel index and fractional offset
+                    let sub_u  = cell_u * 2 + col;
+                    let sub_v  = cell_v * 2 + row;
                     let u_int  = sub_u / 2;
                     let v_int  = sub_v / 2;
                     let u_frac = if sub_u % 2 == 1 { 0.5 } else { 0.0 };
@@ -224,34 +215,27 @@ where
                 if densities[i] >= threshold { acc | (1 << i) } else { acc }
             });
 
-            if case_index == 0 || case_index == 511 {
-                continue;
-            }
+            if case_index == 0 || case_index == 511 { continue; }
 
             let class_idx = TRANSITION_CELL_CLASS[case_index] as usize;
             let cell_data = TRANSITION_CELL_DATA[class_idx.min(TRANSITION_CELL_DATA.len() - 1)];
             if cell_data.len() < 1 { continue; }
 
-            let tri_count  = ((cell_data[0] >> 4) & 0xF) as usize;
-            let vert_count = (cell_data[0] & 0xF) as usize;
+            let tri_count = ((cell_data[0] >> 4) & 0xF) as usize;
             if tri_count == 0 || cell_data.len() < 1 + tri_count * 3 { continue; }
 
-            // Compute interpolated vertices for each crossed TC edge
             let mut edge_verts: [u32; 12] = [u32::MAX; 12];
-
             for (edge_idx, &(ca, cb)) in TC_EDGE_CORNERS.iter().enumerate() {
                 let da = densities[ca];
                 let db = densities[cb];
-                if (da >= threshold) == (db >= threshold) {
-                    continue;
-                }
+                if (da >= threshold) == (db >= threshold) { continue; }
                 let t   = ((threshold - da) / (db - da)).clamp(0.0, 1.0);
                 let pos = lerp3(positions[ca], positions[cb], t);
                 let normal = gradient_normal(field, step, pos);
                 edge_verts[edge_idx] = mesh.push_vertex(pos, normal);
             }
 
-            emit_triangles(cell_data, tri_count, vert_count, &edge_verts, mesh);
+            emit_triangles(cell_data, tri_count, &edge_verts, mesh);
         }
     }
 }
@@ -261,15 +245,16 @@ where
 // ---------------------------------------------------------------------------
 
 /// Emit triangles from a cell data table entry.
-/// `verts[i]` = mesh vertex index for edge slot `i`.
-/// Vertex indices in `cell_data` directly reference edge slots.
+///
+/// `cell_data[1..]` contains `tri_count * 3` vertex indices. Each index is an
+/// edge slot number (0-11) into `edge_verts`. We skip any triangle that
+/// references an unfilled slot (u32::MAX) to handle table inconsistencies safely.
 #[inline]
 fn emit_triangles(
-    cell_data:  &[u8],
-    tri_count:  usize,
-    vert_count: usize,
-    verts:      &[u32; 12],
-    mesh:       &mut Mesh,
+    cell_data: &[u8],
+    tri_count: usize,
+    edge_verts: &[u32; 12],
+    mesh: &mut Mesh,
 ) {
     for tri in 0..tri_count {
         let base = 1 + tri * 3;
@@ -277,13 +262,13 @@ fn emit_triangles(
         let a = cell_data[base    ] as usize;
         let b = cell_data[base + 1] as usize;
         let c = cell_data[base + 2] as usize;
-        // Guard: indices must be within vert_count and the edge slot must be filled
-        if a < vert_count && b < vert_count && c < vert_count
-            && verts[a] != u32::MAX
-            && verts[b] != u32::MAX
-            && verts[c] != u32::MAX
+        // edge slot indices must be in 0..12 and the slot must be filled
+        if a < 12 && b < 12 && c < 12
+            && edge_verts[a] != u32::MAX
+            && edge_verts[b] != u32::MAX
+            && edge_verts[c] != u32::MAX
         {
-            mesh.push_triangle(verts[a], verts[b], verts[c]);
+            mesh.push_triangle(edge_verts[a], edge_verts[b], edge_verts[c]);
         }
     }
 }
@@ -298,7 +283,7 @@ fn lerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     ]
 }
 
-/// Estimate surface normal at `pos` using central-difference gradients.
+/// Estimate the surface normal at `pos` via central-difference gradients.
 #[inline]
 fn gradient_normal<F>(field: &F, step: f32, pos: [f32; 3]) -> [f32; 3]
 where
@@ -323,7 +308,7 @@ fn normalize3(v: [f32; 3]) -> [f32; 3] {
     }
 }
 
-/// Returns `true` if the cell at `(ix, iy, iz)` lies on an active transition face.
+/// Returns `true` if `(ix, iy, iz)` lies on an active transition face.
 /// Such cells are skipped in regular extraction and handled by the transition pass.
 #[inline]
 fn is_boundary_cell(
