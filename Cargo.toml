@@ -1,0 +1,22 @@
+[package]
+name = "transvoxel"
+version = "0.1.0"
+edition = "2021"
+authors = ["transvoxel"]
+description = "A Rust implementation of Eric Lengyel's Transvoxel Algorithm for seamless LOD voxel terrain"
+license = "MIT"
+readme = "README.md"
+keywords = ["voxel", "transvoxel", "marching-cubes", "lod", "terrain"]
+categories = ["graphics", "game-engines", "algorithms"]
+
+[lib]
+name = "transvoxel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "demo"
+path = "src/bin/demo.rs"
+
+[dependencies]
+
+[dev-dependencies]
