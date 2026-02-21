@@ -3,11 +3,11 @@
 use crate::block::Block;
 use crate::mesh::Mesh;
 use crate::tables::{
-    REGULAR_CELL_CLASS, REGULAR_CELL_DATA, TRANSITION_CELL_CLASS, TRANSITION_CELL_DATA,
+    REGULAR_CELL_CLASS, REGULAR_CELL_DATA, REGULAR_VERTEX_DATA, TRANSITION_CELL_CLASS,
+    TRANSITION_CELL_DATA,
 };
 use crate::transition_sides::{TransitionSide, TransitionSides};
 use std::collections::HashMap;
-use transvoxel_data::regular_cell_data::REGULAR_VERTEX_DATA;
 
 // ---------------------------------------------------------------------------
 // Public extraction entry point
